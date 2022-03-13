@@ -1,13 +1,5 @@
-﻿/*
- * We wanted to create this tool to raise awareness of the problem, 
- * it will not be stable for programs with Arabic alphabet and could cause false positives with some emoticons.
- * Please note that this tool is an indicative template but you should not rely on it, it is really simple and basic.
- * 
- * Check https://dotnetsafer.com to know about us.
- * 
- */
-
-using System;
+﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -17,49 +9,12 @@ using System.Text.RegularExpressions;
 
 using TrojanSourceDetector;
 
-const string wheel = @"|/-\";
-ulong index = 0;
 
-var isVerbose = args.Contains("-verbose") || args.Contains("-Verbose") || args.Contains("-v") || args.Contains("-V");
-var isBom = args.Contains("-bom") || args.Contains("-BOM") || args.Contains("-b") || args.Contains("-B");
-var isEsc = args.Contains("-esc") || args.Contains("-ESC") || args.Contains("-e") || args.Contains("-E");
-var isWhitelist = args.Contains("-whitelist") || args.Contains("-Whitelist") || args.Contains("-w") || args.Contains("-W");
 
 var originalColor = Console.ForegroundColor;
 var defaultColor = ConsoleColor.White;
 Console.ForegroundColor = ConsoleColor.DarkCyan;
 
-Console.WriteLine(@"
-______      _              _              __          
-|  _  \    | |            | |            / _|         
-| | | |___ | |_ _ __   ___| |_ ___  __ _| |_ ___ _ __ 
-| | | / _ \| __| '_ \ / _ \ __/ __|/ _` |  _/ _ \ '__|
-| |/ / (_) | |_| | | |  __/ |_\__ \ (_| | ||  __/ |   
-|___/ \___/ \__|_| |_|\___|\__|___/\__,_|_| \___|_|   
-                                                      
-Hidden value checker to prevent source trojan vulnerability.
-
-###############################################################
-");
-
-Console.ForegroundColor = defaultColor;
-
-Console.WriteLine(@"
-Based on the examples of: 
-https://github.com/nickboucher/trojan-source/tree/main/C%23
-
-and based on the article by Nicholas Boucher and Ross Anderson; 
-https://www.trojansource.codes
-
-This small tool will help you to verify if any file in your source code
-contains any hidden characters that could be linked to this vulnerability.
-
-######
-
-To understand the why of the tool, check:
-
-https://medium.com/@juanal98/trojan-source-in-dotnet-25f6ce190c1a
-");
 
 var nonRenderingCategories = new UnicodeCategory[] {
 UnicodeCategory.Control,
@@ -75,45 +30,42 @@ void alert(string text, int line)
     Console.ForegroundColor = ConsoleColor.DarkRed;
     Console.Write("[Warning]: ");
     Console.ForegroundColor = defaultForegroundColor;
-    Console.Write($"Hidden characters have been detected at line {line} in: ");
+    Console.Write($"Terdapat Hidden characters pada posisi line {line}: ");
     Console.ForegroundColor = ConsoleColor.DarkRed;
     Console.Write(text);
     Console.ForegroundColor = defaultForegroundColor;
     Console.WriteLine();
 
-    if (isVerbose)
+    var start = Math.Max(0, line);
+    var sourceLines = File.ReadAllLines(text).Skip(start).Take(1).ToArray();
+
+    for (int i = 0; i < sourceLines.Length; ++i)
     {
-        var start = Math.Max(0, line);
-        var sourceLines = File.ReadAllLines(text).Skip(start).Take(1).ToArray();
+        var sourceLine = sourceLines[i];
+        Console.WriteLine($"Yang terlihat: [{start + i}] {sourceLine}");
 
-        for (int i = 0; i < sourceLines.Length; ++i)
+        Console.Write($"Aktual    : [{start + i}] ");
+        foreach (var c in sourceLine)
         {
-            var sourceLine = sourceLines[i];
-            Console.WriteLine($"appears as: [{start + i}] {sourceLine}");
+            var (isPrintable, slug) = CharConverter(c);
 
-            Console.Write($"actual    : [{start + i}] ");
-            foreach (var c in sourceLine)
+            if (!isPrintable)
             {
-                var (isPrintable, slug) = CharConverter(c);
-
-                if (!isPrintable)
-                {
-                    Console.BackgroundColor = ConsoleColor.DarkRed;
-                }
-
-                Console.Write(slug);
-
-                if (!isPrintable)
-                {
-                    Console.BackgroundColor = defaultBackgroundColor;
-                }
+                Console.BackgroundColor = ConsoleColor.DarkRed;
             }
 
-            Console.WriteLine();
+            Console.Write(slug);
+
+            if (!isPrintable)
+            {
+                Console.BackgroundColor = defaultBackgroundColor;
+            }
         }
 
         Console.WriteLine();
     }
+
+    Console.WriteLine();
 
     static (bool isPrintable, string slug) CharConverter(char c)
     {
@@ -169,20 +121,17 @@ Console.WriteLine();
 
 List<EmojiRecord> whiteList = new();
 
-if (isWhitelist)
-{
-    Console.WriteLine("Using Emoji Whitelist.");
-    var jsonPath = Path.Combine(Path.GetDirectoryName(typeof(Program).Assembly.Location), "emojis.json");
+Console.WriteLine("Emoji Whitelist.");
+var jsonPath = Path.Combine(Path.GetDirectoryName(typeof(Program).Assembly.Location), "emojis.json");
 
-    whiteList = JsonSerializer.Deserialize<List<EmojiRecord>>(File.ReadAllText(jsonPath));
-    Console.WriteLine($"Emoji Whitelist contains {whiteList.Count} definitions.");
-}
+whiteList = JsonSerializer.Deserialize<List<EmojiRecord>>(File.ReadAllText(jsonPath));
+Console.WriteLine($"Terdapat {whiteList.Count} pada Emoji Whitelist.");
 
 
 if (string.IsNullOrEmpty(path) || !Directory.Exists(path))
 {
     Console.ForegroundColor = ConsoleColor.DarkRed;
-    Console.WriteLine("Invalid path, check your .NET project directory");
+    Console.WriteLine("Invalid path");
     Console.ForegroundColor = defaultColor;
     return;
 }
@@ -204,11 +153,6 @@ foreach (var dotnetFile in dotnetFiles)
 {
     if (regex.IsMatch(dotnetFile))
     {
-        if (isVerbose)
-        {
-            //Console.WriteLine($"\b{scannedFiles}/{dotnetFilesCount}: {scannedFiles / dotnetFilesCount:P2}");
-            Tick(ConsoleColor.DarkGreen);
-        }
         string? currentLine = null;
 
         var sourceLines = File.ReadAllLines(dotnetFile);
@@ -243,27 +187,23 @@ foreach (var dotnetFile in dotnetFiles)
                   !nonRenderingCategories.Contains(category);
 
             // Filter out Byte-Order-Marks and ESC sequences.
-            if ((ushort)c == 0xFEFF && isBom)
+            if ((ushort)c == 0xFEFF)
             {
                 continue;
             }
 
-            if ((ushort)c == 0x7f && isEsc)
+            if ((ushort)c == 0x7f)
             {
                 continue;
             }
 
             if (!isPrintable)
             {
-                if (isVerbose)
-                {
-                    Tick(ConsoleColor.DarkRed);
-                }
 
                 var isSurrogate = Char.GetUnicodeCategory(c) == UnicodeCategory.Surrogate;
                 var nextIsSurrogate = Char.GetUnicodeCategory(currentLine[positionInLine + 1]) == UnicodeCategory.Surrogate;
                 var isSafe = false || (isSurrogate && nextIsSurrogate);
-                if (isWhitelist && isSurrogate)
+                if (isSurrogate)
                 {
                     foreach (var emoji in whiteList)
                     {
@@ -276,12 +216,6 @@ foreach (var dotnetFile in dotnetFiles)
                         {
                             if (match.Index < positionInLine && match.Index + match.Length > positionInLine)
                             {
-                                //if (isVerbose)
-                                //{
-                                //    Console.ForegroundColor = ConsoleColor.DarkGreen;
-                                //    Console.WriteLine($"Found whitelisted emoji ({emoji.UnicodeParts}) on line {line} of {dotnetFile}, skipping.");
-                                //    Console.ForegroundColor = defaultColor;
-                                //}
                                 foundMatch = true;
                                 break;
                             }
@@ -296,7 +230,7 @@ foreach (var dotnetFile in dotnetFiles)
                     }
                 }
 
-                if (!isWhitelist || (!isSafe && !nextIsSurrogate))
+                if (!isSafe && !nextIsSurrogate)
                 {
                     issuesCount++;
 
@@ -338,23 +272,14 @@ if (issuesCount == 0)
 
 Console.ForegroundColor = ConsoleColor.DarkYellow;
 Console.WriteLine();
-Console.WriteLine($"{problemFiles} compromised files containing {issuesCount} issues have been detected based on a total of {scannedFiles} files scanned, please review.");
+Console.WriteLine($"{problemFiles} files terdapat {issuesCount} issue yang terdeteksi dari total {scannedFiles} files yang di scan");
 Console.ForegroundColor = defaultColor;
 
-if (isVerbose)
+foreach (var (name, list) in problematicFilesList.OrderBy(t => t.filename))
 {
-    foreach (var (name, list) in problematicFilesList.OrderBy(t => t.filename))
-    {
-        var lines = $"{name}: [{string.Join(",", list)}]";
-        Console.WriteLine(lines);
-    }
+    var lines = $"{name}: [{string.Join(",", list)}]";
+    Console.WriteLine(lines);
 }
+
 Console.ForegroundColor = originalColor;
 
-void Tick(ConsoleColor color)
-{
-    Console.ForegroundColor = color;
-    Console.Write($"\b{wheel[(int)index % wheel.Length]}");
-    Console.ForegroundColor = defaultColor;
-    index++;
-}
